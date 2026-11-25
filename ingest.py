@@ -16,6 +16,8 @@ from typing import Tuple
 import duckdb
 import requests
 
+from database import get_db_connection
+
 try:
     from google.transit import gtfs_realtime_pb2
 except ImportError:
@@ -37,9 +39,7 @@ DEFAULT_GTFS_RT_URL = os.environ.get(
 
 def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection:
     """Initialize DuckDB table for trip delays and weather context."""
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(db_path))
+    con = get_db_connection(db_path)
     con.execute("""
         CREATE TABLE IF NOT EXISTS trip_delays (
             captured_at TIMESTAMP,
@@ -118,7 +118,6 @@ def poll_once(
     if rows:
         con = init_db(db_path)
         con.executemany("INSERT INTO trip_delays VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
-        con.close()
         print(f"[{now.isoformat()}] Logged {len(rows)} stop delay records into {db_path}.")
     else:
         print(f"[{now.isoformat()}] Feed parsed, but no stop_time_update arrival delays found.")
@@ -204,7 +203,6 @@ def seed_synthetic_data(
 
     con.executemany("INSERT INTO trip_delays VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
     total_count = con.execute("SELECT COUNT(*) FROM trip_delays").fetchone()[0]
-    con.close()
     print(f"Seeded {len(rows)} synthetic delay records into {db_path}. Total records: {total_count}.")
 
 
@@ -214,11 +212,10 @@ def print_status(db_path: Path | str = DEFAULT_DB_PATH):
     if not db_path.exists():
         print(f"Database {db_path} does not exist yet.")
         return
-    con = duckdb.connect(str(db_path), read_only=True)
+    con = get_db_connection(db_path)
     count = con.execute("SELECT COUNT(*) FROM trip_delays").fetchone()[0]
     if count == 0:
         print("Database contains 0 records.")
-        con.close()
         return
 
     earliest, latest = con.execute("SELECT MIN(captured_at), MAX(captured_at) FROM trip_delays").fetchone()
@@ -229,7 +226,6 @@ def print_status(db_path: Path | str = DEFAULT_DB_PATH):
     print(f"Time Range   : {earliest} to {latest}")
     print(f"Routes Logged: {routes}")
     print(f"Overall Avg Delay: {avg_delay} mins")
-    con.close()
 
 
 def main():

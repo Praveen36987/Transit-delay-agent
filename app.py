@@ -2,6 +2,7 @@
 Streamlit Web Application for Local Edge-AI Logistics & Transit Delay Prediction Agent
 Provides an interactive dashboard for DuckDB delay logs, Scikit-learn IsolationForest
 disruption anomalies, weather correlations, what-if delay predictions, and an AI chat assistant.
+Uses a centralized shared DuckDB connection to avoid ConnectionException errors.
 """
 
 import asyncio
@@ -16,7 +17,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Local analytics imports
+# Centralized database & analytics imports
+from database import get_db_connection
 from analytics import (
     DEFAULT_DB_PATH,
     detect_anomalies,
@@ -54,9 +56,9 @@ st.markdown("""
 
 @st.cache_resource
 def get_db():
-    """Ensure database exists and return connection."""
+    """Ensure database exists and return shared connection."""
     init_db(DEFAULT_DB_PATH)
-    return duckdb.connect(str(DEFAULT_DB_PATH), read_only=False)
+    return get_db_connection(DEFAULT_DB_PATH)
 
 
 def check_ollama_status(base_url="http://localhost:11434"):
@@ -151,7 +153,7 @@ with tab1:
     
     with col_left:
         hours_filter = st.slider("Lookback Window (Hours)", min_value=6, max_value=168, value=48, step=6)
-        worst_df = get_worst_delayed_routes(hours_back=hours_filter, limit=10)
+        worst_df = get_worst_delayed_routes(hours_back=hours_filter, limit=10, con=con)
         
         if not worst_df.empty:
             fig_bar = px.bar(
@@ -171,7 +173,7 @@ with tab1:
         routes_list = con.execute("SELECT DISTINCT route_id FROM trip_delays ORDER BY 1").df()["route_id"].tolist()
         selected_route = st.selectbox("Inspect Hourly Baseline for Route:", routes_list)
         
-        baseline_df = get_route_baselines(route_id=selected_route)
+        baseline_df = get_route_baselines(route_id=selected_route, con=con)
         if not baseline_df.empty:
             fig_line = go.Figure()
             fig_line.add_trace(go.Scatter(
@@ -210,7 +212,7 @@ with tab2:
         contamination = st.slider("Outlier Contamination Threshold", 0.01, 0.15, 0.05, 0.01)
         top_anomalies = st.number_input("Max Anomalies to Display", 5, 50, 15)
         
-    anomalies_df = detect_anomalies(contamination=contamination)
+    anomalies_df = detect_anomalies(contamination=contamination, con=con)
     
     if not anomalies_df.empty:
         with col_c2:
@@ -238,7 +240,7 @@ with tab2:
 # ---------------- TAB 3: WEATHER IMPACT ----------------
 with tab3:
     st.subheader("Weather Sensitivity & Correlation Analysis")
-    weather_summary = get_weather_impact_summary()
+    weather_summary = get_weather_impact_summary(con=con)
     
     c_w1, c_w2 = st.columns(2)
     with c_w1:
@@ -273,7 +275,7 @@ with tab4:
         p_wind = st.number_input("Forecasted Wind (km/h)", 0.0, 120.0, float(live_wind))
         
         if st.button("Calculate Delay Forecast"):
-            pred_res = predict_route_delay(p_route, p_hour, p_rain, p_wind)
+            pred_res = predict_route_delay(p_route, p_hour, p_rain, p_wind, con=con)
             st.success(f"**Predicted Delay: {pred_res['predicted_delay_min']} minutes**")
             st.write(f"- Historical Route Average: `{pred_res['historical_avg_delay_min']} min`")
             st.write(f"- Weather Penalty: `+{pred_res['weather_penalty_min']} min`")
@@ -295,7 +297,6 @@ with tab4:
                 with st.spinner("Agent querying local MCP tools and synthesizing report..."):
                     if ollama_online:
                         try:
-                            # Invoke agent asynchronously
                             from agent import build_agent
                             agent_instance, _ = build_agent(model_name=selected_model)
                             

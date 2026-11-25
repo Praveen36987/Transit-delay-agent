@@ -18,13 +18,15 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import f1_score, mean_absolute_error, precision_score, recall_score
 
+from database import get_db_connection
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "data" / "transit_logs.duckdb"
 
 
 def load_dataset(db_path: Path | str = DEFAULT_DB_PATH) -> pd.DataFrame:
     """Load historical delay records with temporal ordering."""
-    con = duckdb.connect(str(db_path), read_only=True)
+    con = get_db_connection(db_path)
     df = con.execute("""
         SELECT
             captured_at,
@@ -39,7 +41,6 @@ def load_dataset(db_path: Path | str = DEFAULT_DB_PATH) -> pd.DataFrame:
         FROM trip_delays
         ORDER BY captured_at ASC
     """).df()
-    con.close()
     return df
 
 

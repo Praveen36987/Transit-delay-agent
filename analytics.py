@@ -2,6 +2,7 @@
 Analytics & Anomaly Detection Module
 Provides deterministic analytics, route delay baselines, and Scikit-learn
 IsolationForest anomaly detection over DuckDB transit logs.
+Uses a centralized database connection to prevent configuration mismatch errors.
 """
 
 from pathlib import Path
@@ -11,14 +12,11 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
+from database import get_db_connection
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = BASE_DIR / "data" / "transit_logs.duckdb"
 STATIC_ROUTES_PATH = BASE_DIR / "data" / "static" / "routes.txt"
-
-
-def get_db_connection(db_path: Path | str = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection:
-    """Open read-only DuckDB connection."""
-    return duckdb.connect(str(db_path), read_only=True)
 
 
 def load_static_routes() -> pd.DataFrame:
@@ -35,13 +33,16 @@ def detect_anomalies(
     db_path: Path | str = DEFAULT_DB_PATH,
     contamination: float = 0.05,
     days_back: int = 7,
+    con: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> pd.DataFrame:
     """
     Train Scikit-learn IsolationForest on multi-feature delay context:
     [hour_of_day, arrival_delay_sec, precipitation_mm, wind_speed_kmh]
     Flags abnormal cascading delays rather than regular schedule jitter.
     """
-    con = get_db_connection(db_path)
+    if con is None:
+        con = get_db_connection(db_path)
+
     query = """
     SELECT
         captured_at,
@@ -57,14 +58,12 @@ def detect_anomalies(
     WHERE captured_at >= (SELECT MAX(captured_at) FROM trip_delays) - (INTERVAL '1 day' * ?)
     """
     df = con.execute(query, [days_back]).df()
-    con.close()
 
     if len(df) < 50:
         return pd.DataFrame()
 
     features = df[["hour_of_day", "arrival_delay_sec", "precipitation_mm", "wind_speed_kmh"]].copy()
 
-    # Normalize or directly fit IsolationForest
     model = IsolationForest(
         n_estimators=100,
         contamination=contamination,
@@ -75,7 +74,6 @@ def detect_anomalies(
 
     anomalies = df[df["anomaly_flag"] == -1].sort_values("arrival_delay_sec", ascending=False)
 
-    # Enrich with route metadata if available
     routes_df = load_static_routes()
     if not routes_df.empty and "route_id" in routes_df.columns:
         anomalies = anomalies.merge(routes_df[["route_id", "route_long_name"]], on="route_id", how="left")
@@ -86,6 +84,7 @@ def detect_anomalies(
 def get_route_baselines(
     db_path: Path | str = DEFAULT_DB_PATH,
     route_id: Optional[str] = None,
+    con: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> pd.DataFrame:
     """
     Compute route-level delay baselines:
@@ -94,7 +93,9 @@ def get_route_baselines(
     - Total recorded trips
     Grouped by route_id and hour_of_day.
     """
-    con = get_db_connection(db_path)
+    if con is None:
+        con = get_db_connection(db_path)
+
     filter_sql = "WHERE route_id = ?" if route_id else ""
     params = [route_id] if route_id else []
 
@@ -112,7 +113,6 @@ def get_route_baselines(
     ORDER BY route_id, hour_of_day
     """
     df = con.execute(query, params).df()
-    con.close()
     return df
 
 
@@ -120,11 +120,14 @@ def get_worst_delayed_routes(
     db_path: Path | str = DEFAULT_DB_PATH,
     hours_back: int = 48,
     limit: int = 5,
+    con: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> pd.DataFrame:
     """
     Return routes with highest average delay over recent hours.
     """
-    con = get_db_connection(db_path)
+    if con is None:
+        con = get_db_connection(db_path)
+
     query = """
     SELECT
         route_id,
@@ -140,7 +143,6 @@ def get_worst_delayed_routes(
     LIMIT ?
     """
     df = con.execute(query, [hours_back, limit]).df()
-    con.close()
 
     routes_df = load_static_routes()
     if not routes_df.empty and "route_id" in routes_df.columns:
@@ -149,12 +151,17 @@ def get_worst_delayed_routes(
     return df
 
 
-def get_weather_impact_summary(db_path: Path | str = DEFAULT_DB_PATH) -> dict:
+def get_weather_impact_summary(
+    db_path: Path | str = DEFAULT_DB_PATH,
+    con: Optional[duckdb.DuckDBPyConnection] = None,
+) -> dict:
     """
     Analyze the statistical correlation between adverse weather (rain > 5mm or wind > 25km/h)
     and transit delays.
     """
-    con = get_db_connection(db_path)
+    if con is None:
+        con = get_db_connection(db_path)
+
     res = con.execute("""
         SELECT
             CASE
@@ -167,7 +174,6 @@ def get_weather_impact_summary(db_path: Path | str = DEFAULT_DB_PATH) -> dict:
         FROM trip_delays
         GROUP BY 1
     """).fetchall()
-    con.close()
 
     summary = {row[0]: {"count": row[1], "avg_delay_min": row[2], "p90_delay_min": row[3]} for row in res}
     return summary
@@ -179,12 +185,15 @@ def predict_route_delay(
     precipitation_mm: float = 0.0,
     wind_speed_kmh: float = 10.0,
     db_path: Path | str = DEFAULT_DB_PATH,
+    con: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> dict:
     """
     Deterministic predictive baseline calculation combining historical route-hour
     quantiles and weather sensitivity regressions.
     """
-    con = get_db_connection(db_path)
+    if con is None:
+        con = get_db_connection(db_path)
+
     row = con.execute("""
         SELECT
             ROUND(AVG(arrival_delay_sec) / 60.0, 2) AS baseline_avg,
@@ -193,7 +202,6 @@ def predict_route_delay(
         FROM trip_delays
         WHERE route_id = ? AND EXTRACT(HOUR FROM captured_at) = ?
     """, [route_id, hour_of_day]).fetchone()
-    con.close()
 
     baseline_avg = float(row[0]) if (row and row[0] is not None) else 5.0
     baseline_p90 = float(row[1]) if (row and row[1] is not None) else 15.0

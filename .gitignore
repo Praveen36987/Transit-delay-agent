@@ -24,3 +24,6 @@ data/*.duckdb.tmp
 .idea/
 .DS_Store
 Thumbs.db
+
+# Nested clone
+Transit-delay-agent/

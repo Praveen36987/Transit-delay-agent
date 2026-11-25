@@ -8,6 +8,7 @@ import duckdb
 import pandas as pd
 import pytest
 
+from database import get_db_connection
 from analytics import (
     DEFAULT_DB_PATH,
     detect_anomalies,
@@ -43,9 +44,8 @@ def test_db(tmp_path_factory):
 
 def test_database_initialization(test_db):
     """Verify table creation and record counts."""
-    con = duckdb.connect(str(test_db), read_only=True)
+    con = get_db_connection(test_db)
     count = con.execute("SELECT COUNT(*) FROM trip_delays").fetchone()[0]
-    con.close()
     assert count == 200
 
 
