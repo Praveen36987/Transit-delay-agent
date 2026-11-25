@@ -1,0 +1,14 @@
+stop_id,stop_name,stop_lat,stop_lon
+STOP_SEC,Secunderabad Railway Station,17.4334,78.5015
+STOP_BEG,Begumpet Flyover,17.4447,78.4664
+STOP_PUN,Panjagutta Central,17.4265,78.4518
+STOP_JUB,Jubilee Hills Checkpost,17.4319,78.4072
+STOP_HIT,Hitec City Cyber Towers,17.4504,78.3808
+STOP_KOT,Koti Bus Terminus,17.3833,78.4833
+STOP_MEH,Mehdipatnam Junction,17.3916,78.4412
+STOP_KUK,Kukatpally Y-Junction,17.4849,78.4138
+STOP_PAT,Patancheru Depot,17.5284,78.2642
+STOP_DIL,Dilsukhnagar Hub,17.3688,78.5247
+STOP_RAI,Raidurg Metro Terminal,17.4428,78.3772
+STOP_MIY,Miyapur Metro Station,17.4968,78.3614
+STOP_LBN,LB Nagar Metro Junction,17.3457,78.5522

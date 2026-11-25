@@ -1,0 +1,6 @@
+route_id,route_short_name,route_long_name,route_type
+ROUTE_101,101,Secunderabad to Hitec City Express,3
+ROUTE_202,202,Koti to Patancheru Industrial Line,3
+ROUTE_303,303,Dilsukhnagar to Jubilee Hills,3
+METRO_BLUE,M-BLUE,Nagole to Raidurg Metro,1
+METRO_RED,M-RED,Miyapur to LB Nagar Metro,1
